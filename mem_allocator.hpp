@@ -7,42 +7,75 @@
 #include <unordered_set>
 
 class MemoryManagerInternal;
+
+/// If SMM_HUGE_ALLOCATIONS=0, allocation are limited to 4GB.
+/// Note that this does not affect the managed memory size, i.e. the managed memory
+/// size can exceed 4GB, the limitation is *per* single allocation
+#if SMM_HUGE_ALLOCATIONS
+typedef size_t size_type_t;
+#else
+typedef uint32_t size_type_t;
+#endif
+
+#define IS_ALLOCATED_BIT (((uint64_t)1) << 63)
+#define FLAGS_MASK IS_ALLOCATED_BIT
+
 struct Chunk {
-    /// The chunk address
-    uintptr_t m_address = 0;
+    /// The chunk address + extra bits. We use the MSD bit as a marker
+    /// to check whether or not this chunk is allocated. This will help
+    /// us reduce the OVERHEAD size
+    uintptr_t m_address_raw = 0;
     /// The length of this chunk
-    size_t m_len = 0;
+    size_type_t m_len = 0;
     /// The previous chunk's length
-    size_t m_prev_len = 0;
-    /// Is free?
-    bool m_is_free = true;
+    size_type_t m_prev_len = 0;
 
     inline bool is_free() const {
-        return m_is_free;
+        return (m_address_raw & IS_ALLOCATED_BIT) == 0;
     }
 
     bool is_last(MemoryManagerInternal* memgr) const;
     bool is_first(MemoryManagerInternal* memgr) const;
 
     inline void set_free(bool b) {
-        m_is_free = b;
+        if (b) {
+            m_address_raw &= ~IS_ALLOCATED_BIT;
+        } else {
+            m_address_raw |= IS_ALLOCATED_BIT;
+        }
     }
 
     /// Return the total memory length
-    inline size_t length() const {
+    inline size_type_t length() const {
         return m_len;
     }
 
     /// The size that is actually usable by the user
-    size_t usable_length() const;
+    size_type_t usable_length() const;
 
-    inline size_t previous_length() const {
+    inline size_type_t previous_length() const {
         return m_prev_len;
     }
 
-    /// Given the base address, return the address of this chunk
-    inline char* address() const {
-        return (char*)m_address;
+    /// Update the chunk's address while keeping the IS_FREE bit
+    void set_address(uintptr_t addr) {
+        bool free_chunk = is_free();
+        m_address_raw = addr;
+        set_free(free_chunk);
+    }
+
+    /// Return the address as "char*"
+    inline char* address_ptr() const {
+        // clear bits used as flags
+        uintptr_t address = m_address_raw & ~FLAGS_MASK;
+        return (char*)address;
+    }
+
+    /// Return the address as "uintptr_t"
+    inline uintptr_t address_as_uintptr_t() const {
+        // clear bits used as flags
+        uintptr_t address = m_address_raw & ~FLAGS_MASK;
+        return address;
     }
 
     /// Return the next chunk in the list, can be nullptr
@@ -50,7 +83,7 @@ struct Chunk {
         if (is_last(memgr)) {
             return nullptr;
         }
-        char* next_addr = address() + length();
+        char* next_addr = address_ptr() + length();
         return reinterpret_cast<Chunk*>(next_addr);
     }
 
@@ -59,11 +92,11 @@ struct Chunk {
         if (is_first(memgr)) {
             return nullptr;
         }
-        char* prev_addr = address() - previous_length();
+        char* prev_addr = address_ptr() - previous_length();
         return reinterpret_cast<Chunk*>(prev_addr);
     }
 
-    Chunk* split(MemoryManagerInternal* memgr, size_t len);
+    Chunk* split(MemoryManagerInternal* memgr, size_type_t len);
 
     /// Try to merge this chunk with the one that comes after it
     /// On success, "addr" contains the address of the merged chunk
@@ -74,7 +107,7 @@ struct Chunk {
 
     /// Update the chunk's new length. Since we are keeping records based on the
     /// chunk size, we need to update the FreeChunk tree with our new length
-    void update_length(MemoryManagerInternal* memgr, size_t newlen);
+    void update_length(MemoryManagerInternal* memgr, size_type_t newlen);
 };
 
 #define CLASS_NOT_COPYABLE(ClassName)               \
@@ -94,10 +127,10 @@ public:
     bool remove_by_addr(Chunk* addr);
 
     /// Find the best fit for requested_len, if a match is found, remove it
-    Chunk* take_for_size(size_t requested_len);
+    Chunk* take_for_size(size_type_t requested_len);
 
 private:
-    std::multimap<size_t, Chunk*> m_freeChunks;
+    std::multimap<size_type_t, Chunk*> m_freeChunks;
     std::unordered_set<Chunk*> m_addresses;
 };
 
@@ -109,27 +142,27 @@ public:
     CLASS_NOT_COPYABLE(MemoryManagerInternal);
 
     /// Assign memory to be managed by this class
-    void assign(char* mem, size_t len);
+    void assign(char* mem, size_type_t len);
 
     /// Allocate memory for the user
-    void* do_alloc(size_t size);
+    void* do_alloc(size_type_t size);
 
     /// Re-allocate memory. See "realloc" for details
-    void* do_re_alloc(void* mem, size_t newsize);
+    void* do_re_alloc(void* mem, size_type_t newsize);
 
     /// Release memory previously allocated by this memory manager
     void do_release(void* mem);
 
     /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
     /// is returned
-    size_t do_usable_size(const void* mem) const;
+    size_type_t do_usable_size(const void* mem) const;
 
     /// Allocates memory for an array of nmemb elements of size bytes each and returns a pointer to the allocated memory
-    void* do_calloc(size_t nmemb, size_t size);
+    void* do_calloc(size_type_t nmemb, size_type_t size);
 
 private:
     friend struct Chunk;
-    inline size_t capacity() const {
+    inline uint64_t capacity() const {
         return m_capacity;
     }
 
@@ -141,11 +174,11 @@ private:
     }
 
     /// Find the best free chunk that can hold the requested memory len
-    Chunk* find_free_chunk_for(size_t user_len);
+    Chunk* find_free_chunk_for(size_type_t user_len);
 
     Chunk* m_head = nullptr;
     FreeChunks m_freeChunks;
-    size_t m_capacity = 0;
+    uint64_t m_capacity = 0;
 };
 
 /// A lock that does nothing
@@ -160,19 +193,19 @@ template <class LOCK>
 class GenericMemoryManager {
 public:
     /// Assign memory to be managed by this class
-    void assign(char* mem, size_t len) {
+    void assign(char* mem, size_type_t len) {
         std::lock_guard lk{ m_lock };
         m_impl.assign(mem, len);
     }
 
     /// Allocate memory for the user
-    void* alloc(size_t size) {
+    void* alloc(size_type_t size) {
         std::lock_guard lk{ m_lock };
         return m_impl.do_alloc(size);
     }
 
     /// Re-allocate memory. See "realloc" for details
-    void* re_alloc(void* mem, size_t newsize) {
+    void* re_alloc(void* mem, size_type_t newsize) {
         std::lock_guard lk{ m_lock };
         return m_impl.do_re_alloc(mem, newsize);
     }
@@ -185,13 +218,13 @@ public:
 
     /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
     /// is returned. No lock is required here as we are working directly on the memory without changing the manager
-    size_t usable_size(const void* mem) const {
+    size_type_t usable_size(const void* mem) const {
         return m_impl.do_usable_size(mem);
     }
 
     /// Allocates memory for an array of `elements_count` elements of `element_size` bytes each and returns
     /// a pointer to the allocated memory
-    void* calloc(size_t elements_count, size_t element_size) {
+    void* calloc(size_type_t elements_count, size_type_t element_size) {
         std::lock_guard lk{ m_lock };
         return m_impl.do_calloc(elements_count, element_size);
     }
