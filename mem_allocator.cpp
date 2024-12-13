@@ -276,3 +276,14 @@ size_t MemoryManagerInternal::do_usable_size(void* mem) const {
     Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
     return chunk->usable_length();
 }
+
+void* MemoryManagerInternal::do_calloc(size_t nmemb, size_t size) {
+    size_t mem_size = nmemb * size;
+    void* mem = do_alloc(mem_size);
+    if (mem == nullptr) {
+        return mem;
+    }
+
+    std::memset(mem, 0, mem_size);
+    return mem;
+}

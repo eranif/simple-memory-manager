@@ -123,6 +123,9 @@ public:
     /// is returned
     size_t do_usable_size(void* mem) const;
 
+    /// Allocates memory for an array of nmemb elements of size bytes each and returns a pointer to the allocated memory
+    void* do_calloc(size_t nmemb, size_t size);
+
 private:
     friend struct Chunk;
     inline size_t capacity() const {
@@ -183,6 +186,13 @@ public:
     /// is returned. No lock is required here as we are working directly on the memory without changing the manager
     size_t usable_size(void* mem) const {
         return m_impl.do_usable_size(mem);
+    }
+
+    /// Allocates memory for an array of `elements_count` elements of `element_size` bytes each and returns
+    /// a pointer to the allocated memory
+    void* calloc(size_t elements_count, size_t element_size) {
+        std::lock_guard lk{ m_lock };
+        m_impl.do_calloc(elements_count, element_size);
     }
 
 private:
