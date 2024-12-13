@@ -37,17 +37,19 @@ Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t len) {
     // After split, 'this' should have length equal to: OVERHEAD + len
     // but we also require at least OVERHEAD for the next chunk, so the current length
     // must be len + 2 * OVERHEAD
-    if (length() <= (len + (2 * OVERHEAD))) {
+    size_t new_len = round_to_8(OVERHEAD + len);
+    size_t min_for_split = 2 * OVERHEAD;
+    bool can_split = (m_len >= (new_len + min_for_split));
+    if (!can_split) {
         return nullptr;
     }
 
-    size_t newlen = len + 2 * OVERHEAD;
-    Chunk* new_chunk = reinterpret_cast<Chunk*>(address() + newlen);
-    new_chunk->m_prev_len = newlen;
-    new_chunk->m_len = m_len - newlen;
-    new_chunk->m_address = (uintptr_t)(address() + newlen);
+    Chunk* new_chunk = reinterpret_cast<Chunk*>(address() + new_len);
+    new_chunk->m_prev_len = new_len;
+    new_chunk->m_len = m_len - new_len;
+    new_chunk->m_address = (uintptr_t)new_chunk;
     new_chunk->set_free(true);
-    m_len = newlen;
+    m_len = new_len;
     return new_chunk;
 }
 
