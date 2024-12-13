@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <unordered_set>
 
 class MemoryManagerInternal;
@@ -121,7 +122,7 @@ public:
 
     /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
     /// is returned
-    size_t do_usable_size(void* mem) const;
+    size_t do_usable_size(const void* mem) const;
 
     /// Allocates memory for an array of nmemb elements of size bytes each and returns a pointer to the allocated memory
     void* do_calloc(size_t nmemb, size_t size);
@@ -184,7 +185,7 @@ public:
 
     /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
     /// is returned. No lock is required here as we are working directly on the memory without changing the manager
-    size_t usable_size(void* mem) const {
+    size_t usable_size(const void* mem) const {
         return m_impl.do_usable_size(mem);
     }
 
@@ -192,7 +193,7 @@ public:
     /// a pointer to the allocated memory
     void* calloc(size_t elements_count, size_t element_size) {
         std::lock_guard lk{ m_lock };
-        m_impl.do_calloc(elements_count, element_size);
+        return m_impl.do_calloc(elements_count, element_size);
     }
 
 private:

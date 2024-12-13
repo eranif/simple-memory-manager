@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <map>
 
 #define OVERHEAD (sizeof(Chunk))
@@ -269,11 +270,12 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
     }
 }
 
-size_t MemoryManagerInternal::do_usable_size(void* mem) const {
+size_t MemoryManagerInternal::do_usable_size(const void* mem) const {
     if (mem == nullptr) {
         return 0;
     }
-    Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
+
+    const Chunk* chunk = reinterpret_cast<const Chunk*>((const char*)mem - sizeof(Chunk));
     return chunk->usable_length();
 }
 
