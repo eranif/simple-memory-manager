@@ -12,6 +12,12 @@
 
 #define OVERHEAD (sizeof(Chunk))
 
+#ifdef NDEBUG
+#define DEBUG_ASSERT(x)
+#else
+#define DEBUG_ASSERT(x) assert(x)
+#endif
+
 namespace {
 inline size_type_t round_to_8(size_type_t value) {
     return (value + 7) & ~(0x7);
@@ -126,9 +132,9 @@ bool FreeChunks::remove_by_addr(Chunk* addr) {
 void MemoryManagerInternal::assign(char* mem, size_type_t len) {
     // Ensure that the address is 64 bits aligned
     uintptr_t addr = (uintptr_t)mem;
-    assert((addr & 0x7) == 0);
+    DEBUG_ASSERT((addr & 0x7) == 0);
     // Ensure that we have enough memory to hold our overhead
-    assert(len > OVERHEAD);
+    DEBUG_ASSERT(len > OVERHEAD);
     m_head = reinterpret_cast<Chunk*>(mem);
     m_capacity = len;
 
@@ -160,6 +166,7 @@ Chunk* MemoryManagerInternal::find_free_chunk_for(size_type_t user_len) {
 void* MemoryManagerInternal::do_alloc(size_type_t size) {
     Chunk* chunk = find_free_chunk_for(size);
     if (chunk == nullptr) {
+        DEBUG_ASSERT(false && "failed to allocate!");
         return nullptr;
     }
     return chunk->address_ptr() + sizeof(Chunk);
@@ -167,7 +174,7 @@ void* MemoryManagerInternal::do_alloc(size_type_t size) {
 
 void MemoryManagerInternal::do_release(void* mem) {
     Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
-    assert(chunk->is_free() == false && "**double free**");
+    DEBUG_ASSERT(chunk->is_free() == false && "**double free**");
     chunk->set_free(true);
 
     Chunk* addr = nullptr;
@@ -215,7 +222,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
 
     // align the new size
     newsize = round_to_8(newsize);
-    assert(!chunk->is_free() && "do_re_alloc called for free block !?");
+    DEBUG_ASSERT(!chunk->is_free() && "do_re_alloc called for free block !?");
     if (newsize == chunk->usable_length()) {
         // nothing to be done here
         return mem;
@@ -268,6 +275,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
                     m_freeChunks.add(remainder);
                 }
             }
+            DEBUG_ASSERT(false && "failed to allocate");
             return nullptr;
         }
         std::memcpy(newmem, mem, chunk->usable_length());
