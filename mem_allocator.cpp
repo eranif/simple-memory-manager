@@ -209,6 +209,9 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
     }
 
     Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
+
+    // align the new size
+    newsize = round_to_8(newsize);
     assert(!chunk->is_free() && "do_re_alloc called for free block !?");
     if (newsize == chunk->usable_length()) {
         // nothing to be done here
