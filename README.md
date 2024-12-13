@@ -3,6 +3,30 @@
 A memory manager that manages a block of memory. This library does not replaces `libc`'s `malloc` family of methods.
 This can be done in 2 ways:
 
+The implementation uses the "best-fit" algorithm - i.e. it will allocate just the right amount of memory required. Internally
+the "free chunks" are kept in `FreeChunks` class which keeps the free chunks ordered using `std::multimap`.
+
+Coalescing: the manager will attempt to merge free memory blocks after each "free" call to reduce memory fragmentation.
+
+For example, after these calls:
+
+```c++
+// let the manager manage 1K of external memory
+mem_mgr.assign(mem, 1024);
+
+// do some allocates and free them in an arbitrary order:
+
+void* buffer1 = mem_mgr.alloc(100);
+void* buffer2 = mem_mgr.alloc(50);
+void* buffer3 = mem_mgr.alloc(100);
+void* buffer4 = mem_mgr.alloc(60);
+mem_mgr.release(buffer2);
+mem_mgr.release(buffer3);
+mem_mgr.release(buffer1);
+mem_mgr.release(buffer4);
+
+// mem_mgr should have a single free memory block of size 1024
+```
 
 ## Explicit
 

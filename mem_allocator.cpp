@@ -223,17 +223,21 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
         return mem;
     } else {
         // First we try to merge the current chunk with the one adjacent to it to increase its capacity
-        // we do this until we have enough to accommodate the newlen. If we fail, we take the hard path:
+        // we do this until we have enough memory to satisfy the newsize. If we fail, we take the hard path:
         // allocate new chunk, copy over the data and release the old chunk
         Chunk* addr = nullptr;
         size_t merge_success = 0;
         while (true) {
             if (!chunk->try_merge_with_next(this, &addr)) {
                 break;
+            } else {
+                // "addr" was mreged into "chunk" - remote it from the free chunks list
+                m_freeChunks.remove_by_addr(addr);
             }
 
             ++merge_success;
-            // we managed to extend the memory without moving it, see if we got enough space
+
+            // We managed to extend the memory without moving it, see if we got enough space
             if (chunk->usable_length() >= newsize) {
                 // see if we got too much
                 auto remainder = chunk->split(this, newsize);
