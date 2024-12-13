@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
     char* b = (char*)malloc(10);
     a = (char*)realloc(a, 200);
 
-    MemoryManager mem;
+    MemoryManagerThreaded mem;
     char* addr = (char*)malloc(1024);
     mem.assign(addr, 1024);
 

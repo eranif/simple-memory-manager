@@ -21,18 +21,18 @@ size_t Chunk::usable_length() const {
     return m_len - OVERHEAD;
 }
 
-bool Chunk::is_last(MemoryManager* memgr) const {
+bool Chunk::is_last(MemoryManagerInternal* memgr) const {
     uintptr_t end_address = memgr->capacity() + memgr->base_address();
     uintptr_t cur_chunk_end_address = m_address + m_len;
     return cur_chunk_end_address >= end_address;
 }
 
-bool Chunk::is_first(MemoryManager* memgr) const {
+bool Chunk::is_first(MemoryManagerInternal* memgr) const {
     return m_address == memgr->base_address();
 }
 
 /// Split
-Chunk* Chunk::split(MemoryManager* memgr, size_t len) {
+Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t len) {
     // After split, 'this' should have length equal to: OVERHEAD + len
     // but we also require at least OVERHEAD for the next chunk, so the current length
     // must be len + 2 * OVERHEAD
@@ -50,7 +50,7 @@ Chunk* Chunk::split(MemoryManager* memgr, size_t len) {
     return new_chunk;
 }
 
-void Chunk::update_length(MemoryManager* memgr, size_t newlen) {
+void Chunk::update_length(MemoryManagerInternal* memgr, size_t newlen) {
     // re-add ourselves
     auto& free_list = memgr->free_chunks();
     if (is_free() && free_list.remove_by_addr(this)) {
@@ -63,7 +63,7 @@ void Chunk::update_length(MemoryManager* memgr, size_t newlen) {
     }
 }
 
-bool Chunk::try_merge_with_next(MemoryManager* memgr, Chunk** addr) {
+bool Chunk::try_merge_with_next(MemoryManagerInternal* memgr, Chunk** addr) {
     // we can only merge chunks if all 3 conditions below are met
     if (!next(memgr) || !next(memgr)->is_free()) {
         return false;
@@ -80,7 +80,7 @@ bool Chunk::try_merge_with_next(MemoryManager* memgr, Chunk** addr) {
     return true;
 }
 
-bool Chunk::try_merge_with_previous(MemoryManager* memgr) {
+bool Chunk::try_merge_with_previous(MemoryManagerInternal* memgr) {
     // we can only merge chunks if all 3 conditions below are met
     if (!prev(memgr) || !prev(memgr)->is_free()) {
         return false;
@@ -120,7 +120,7 @@ bool FreeChunks::remove_by_addr(Chunk* addr) {
 }
 
 /// MemoryManager
-void MemoryManager::assign(char* mem, size_t len) {
+void MemoryManagerInternal::assign(char* mem, size_t len) {
     // Ensure that the address is 64 bits aligned
     uintptr_t addr = (uintptr_t)mem;
     assert((addr & 0x7) == 0);
@@ -135,7 +135,7 @@ void MemoryManager::assign(char* mem, size_t len) {
     m_freeChunks.add(m_head);
 }
 
-Chunk* MemoryManager::find_free_chunk_for(size_t user_len) {
+Chunk* MemoryManagerInternal::find_free_chunk_for(size_t user_len) {
     // align the length to 64 bit address (least 3 digits should be 1 which is 8)
     user_len = round_to_8(user_len);
     user_len += OVERHEAD; // the actual length
@@ -153,7 +153,7 @@ Chunk* MemoryManager::find_free_chunk_for(size_t user_len) {
     return chunk;
 }
 
-void* MemoryManager::do_alloc(size_t size) {
+void* MemoryManagerInternal::do_alloc(size_t size) {
     Chunk* chunk = find_free_chunk_for(size);
     if (chunk == nullptr) {
         return nullptr;
@@ -161,7 +161,7 @@ void* MemoryManager::do_alloc(size_t size) {
     return chunk->address() + sizeof(Chunk);
 }
 
-void MemoryManager::do_release(void* mem) {
+void MemoryManagerInternal::do_release(void* mem) {
     Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
     assert(chunk->is_free() == false && "**double free**");
     chunk->set_free(true);
@@ -195,7 +195,7 @@ Chunk* FreeChunks::take_for_size(size_t requested_len) {
     return chunk;
 }
 
-void* MemoryManager::do_re_alloc(void* mem, size_t newsize) {
+void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
     if (mem == nullptr) {
         // same as "alloc"
         return do_alloc(newsize);
@@ -263,16 +263,4 @@ void* MemoryManager::do_re_alloc(void* mem, size_t newsize) {
         do_release(mem);
         return newmem;
     }
-}
-
-void* MemoryManager::alloc(size_t size) {
-    return do_alloc(size);
-}
-
-void* MemoryManager::re_alloc(void* mem, size_t newsize) {
-    return do_re_alloc(mem, newsize);
-}
-
-void MemoryManager::release(void* mem) {
-    do_release(mem);
 }

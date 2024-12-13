@@ -5,7 +5,7 @@
 #include <map>
 #include <unordered_set>
 
-class MemoryManager;
+class MemoryManagerInternal;
 struct Chunk {
     /// The chunk address
     uintptr_t m_address = 0;
@@ -20,8 +20,8 @@ struct Chunk {
         return m_is_free;
     }
 
-    bool is_last(MemoryManager* memgr) const;
-    bool is_first(MemoryManager* memgr) const;
+    bool is_last(MemoryManagerInternal* memgr) const;
+    bool is_first(MemoryManagerInternal* memgr) const;
 
     inline void set_free(bool b) {
         m_is_free = b;
@@ -45,7 +45,7 @@ struct Chunk {
     }
 
     /// Return the next chunk in the list, can be nullptr
-    inline Chunk* next(MemoryManager* memgr) {
+    inline Chunk* next(MemoryManagerInternal* memgr) {
         if (is_last(memgr)) {
             return nullptr;
         }
@@ -54,7 +54,7 @@ struct Chunk {
     }
 
     /// Return the previous chunk in the list, can be nullptr
-    inline Chunk* prev(MemoryManager* memgr) {
+    inline Chunk* prev(MemoryManagerInternal* memgr) {
         if (is_first(memgr)) {
             return nullptr;
         }
@@ -62,18 +62,18 @@ struct Chunk {
         return reinterpret_cast<Chunk*>(prev_addr);
     }
 
-    Chunk* split(MemoryManager* memgr, size_t len);
+    Chunk* split(MemoryManagerInternal* memgr, size_t len);
 
     /// Try to merge this chunk with the one that comes after it
     /// On success, "addr" contains the address of the merged chunk
-    bool try_merge_with_next(MemoryManager* memgr, Chunk** addr);
+    bool try_merge_with_next(MemoryManagerInternal* memgr, Chunk** addr);
 
     /// Try to merge this chunk with the one that comes before it
-    bool try_merge_with_previous(MemoryManager* memgr);
+    bool try_merge_with_previous(MemoryManagerInternal* memgr);
 
     /// Update the chunk's new length. Since we are keeping records based on the
     /// chunk size, we need to update the FreeChunk tree with our new length
-    void update_length(MemoryManager* memgr, size_t newlen);
+    void update_length(MemoryManagerInternal* memgr, size_t newlen);
 };
 
 #define CLASS_NOT_COPYABLE(ClassName)               \
@@ -100,31 +100,23 @@ private:
     std::unordered_set<Chunk*> m_addresses;
 };
 
-class MemoryManager {
+/// Used internally
+class MemoryManagerInternal {
 public:
-    MemoryManager() = default;
-    ~MemoryManager() = default;
-    CLASS_NOT_COPYABLE(MemoryManager);
-
-    /// ===----------------------
-    /// Public API calls
-    /// ===----------------------
+    MemoryManagerInternal() = default;
+    ~MemoryManagerInternal() = default;
+    CLASS_NOT_COPYABLE(MemoryManagerInternal);
 
     /// Assign memory to be managed by this class
     void assign(char* mem, size_t len);
 
     /// Allocate memory for the user
-    void* alloc(size_t size);
+    void* do_alloc(size_t size);
 
     /// Re-allocate memory. See "realloc" for details
-    void* re_alloc(void* mem, size_t newsize);
+    void* do_re_alloc(void* mem, size_t newsize);
 
     /// Release memory previously allocated by this memory manager
-    void release(void* mem);
-
-protected:
-    void* do_alloc(size_t size);
-    void* do_re_alloc(void* mem, size_t newsize);
     void do_release(void* mem);
 
 private:
@@ -147,3 +139,49 @@ private:
     FreeChunks m_freeChunks;
     size_t m_capacity = 0;
 };
+
+/// A lock that does nothing
+class NoopLock {
+    inline void lock() {
+    }
+    inline void unlock() {
+    }
+};
+
+template <class LOCK>
+class GenericMemoryManager {
+public:
+    /// Assign memory to be managed by this class
+    void assign(char* mem, size_t len) {
+        std::lock_guard lk{ m_lock };
+        m_impl.assign(mem, len);
+    }
+
+    /// Allocate memory for the user
+    void* alloc(size_t size) {
+        std::lock_guard lk{ m_lock };
+        return m_impl.do_alloc(size);
+    }
+
+    /// Re-allocate memory. See "realloc" for details
+    void* re_alloc(void* mem, size_t newsize) {
+        std::lock_guard lk{ m_lock };
+        return m_impl.do_re_alloc(mem, newsize);
+    }
+
+    /// Release memory previously allocated by this memory manager
+    void release(void* mem) {
+        std::lock_guard lk{ m_lock };
+        m_impl.do_release(mem);
+    }
+
+private:
+    MemoryManagerInternal m_impl;
+    LOCK m_lock;
+};
+
+// Non thread-safe version
+typedef GenericMemoryManager<NoopLock> MemoryManagerSimple;
+
+/// Thread safe version, using mutex
+typedef GenericMemoryManager<std::mutex> MemoryManagerThreaded;
