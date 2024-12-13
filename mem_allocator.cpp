@@ -12,61 +12,53 @@
 
 #define OVERHEAD (sizeof(Chunk))
 
-#ifdef NDEBUG
-#define DEBUG_ASSERT(x)
-#else
-#define DEBUG_ASSERT(x) assert(x)
-#endif
-
 namespace {
-inline size_type_t round_to_8(size_type_t value) {
+inline size_t round_to_8(size_t value) {
     return (value + 7) & ~(0x7);
 }
 } // namespace
 
-size_type_t Chunk::usable_length() const {
+size_t Chunk::usable_length() const {
     return m_len - OVERHEAD;
 }
 
 bool Chunk::is_last(MemoryManagerInternal* memgr) const {
     uintptr_t end_address = memgr->capacity() + memgr->base_address();
-    uintptr_t cur_chunk_end_address = address_as_uintptr_t() + m_len;
+    uintptr_t cur_chunk_end_address = m_address + m_len;
     return cur_chunk_end_address >= end_address;
 }
 
 bool Chunk::is_first(MemoryManagerInternal* memgr) const {
-    return address_as_uintptr_t() == memgr->base_address();
+    return m_address == memgr->base_address();
 }
 
 /// Split
-Chunk* Chunk::split(MemoryManagerInternal* memgr, size_type_t len) {
+Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t len) {
     // After split, 'this' should have length equal to: OVERHEAD + len
     // but we also require at least OVERHEAD for the next chunk, so the current length
     // must be len + 2 * OVERHEAD
-    size_type_t new_len = round_to_8(OVERHEAD + len);
-    size_type_t min_for_split = 2 * OVERHEAD;
+    size_t new_len = round_to_8(OVERHEAD + len);
+    size_t min_for_split = 2 * OVERHEAD;
     bool can_split = (m_len >= (new_len + min_for_split));
     if (!can_split) {
         return nullptr;
     }
 
-    Chunk* new_chunk = reinterpret_cast<Chunk*>(address_ptr() + new_len);
+    Chunk* new_chunk = reinterpret_cast<Chunk*>(address() + new_len);
     new_chunk->m_prev_len = new_len;
     new_chunk->m_len = m_len - new_len;
-    DEBUG_ASSERT((new_chunk->m_len & 0x7) == 0);
-    new_chunk->set_address((uintptr_t)new_chunk);
+    new_chunk->m_address = (uintptr_t)new_chunk;
     new_chunk->set_free(true);
     m_len = new_len;
     return new_chunk;
 }
 
-void Chunk::update_length(MemoryManagerInternal* memgr, size_type_t newlen) {
+void Chunk::update_length(MemoryManagerInternal* memgr, size_t newlen) {
     // re-add ourselves
     auto& free_list = memgr->free_chunks();
     if (is_free() && free_list.remove_by_addr(this)) {
         // the update to the length must be done **after** the removal
         m_len = newlen;
-        DEBUG_ASSERT((m_len & 0x7) == 0);
         free_list.add(this);
     } else {
         // just update the length
@@ -81,7 +73,7 @@ bool Chunk::try_merge_with_next(MemoryManagerInternal* memgr, Chunk** addr) {
     }
 
     auto after = next(memgr);
-    *addr = (Chunk*)(after->address_ptr());
+    *addr = (Chunk*)(after->address());
     update_length(memgr, m_len + after->m_len);
 
     auto after_after = after->next(memgr);
@@ -131,23 +123,22 @@ bool FreeChunks::remove_by_addr(Chunk* addr) {
 }
 
 /// MemoryManager
-void MemoryManagerInternal::assign(char* mem, size_type_t len) {
+void MemoryManagerInternal::assign(char* mem, size_t len) {
     // Ensure that the address is 64 bits aligned
     uintptr_t addr = (uintptr_t)mem;
-    DEBUG_ASSERT((addr & 0x7) == 0);
+    assert((addr & 0x7) == 0);
     // Ensure that we have enough memory to hold our overhead
-    DEBUG_ASSERT(len > OVERHEAD);
+    assert(len > OVERHEAD);
     m_head = reinterpret_cast<Chunk*>(mem);
     m_capacity = len;
 
     m_head->m_len = len;
-    m_head->set_address(addr);
-    m_head->set_free(true);
+    m_head->m_address = addr;
     m_head->m_prev_len = 0;
     m_freeChunks.add(m_head);
 }
 
-Chunk* MemoryManagerInternal::find_free_chunk_for(size_type_t user_len) {
+Chunk* MemoryManagerInternal::find_free_chunk_for(size_t user_len) {
     // align the length to 64 bit address (least 3 digits should be 1 which is 8)
     user_len = round_to_8(user_len);
     user_len += OVERHEAD; // the actual length
@@ -165,18 +156,17 @@ Chunk* MemoryManagerInternal::find_free_chunk_for(size_type_t user_len) {
     return chunk;
 }
 
-void* MemoryManagerInternal::do_alloc(size_type_t size) {
+void* MemoryManagerInternal::do_alloc(size_t size) {
     Chunk* chunk = find_free_chunk_for(size);
     if (chunk == nullptr) {
-        DEBUG_ASSERT(false && "failed to allocate!");
         return nullptr;
     }
-    return chunk->address_ptr() + sizeof(Chunk);
+    return chunk->address() + sizeof(Chunk);
 }
 
 void MemoryManagerInternal::do_release(void* mem) {
     Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
-    DEBUG_ASSERT(chunk->is_free() == false && "**double free**");
+    assert(chunk->is_free() == false && "**double free**");
     chunk->set_free(true);
 
     Chunk* addr = nullptr;
@@ -196,7 +186,7 @@ void MemoryManagerInternal::do_release(void* mem) {
     m_freeChunks.add(chunk);
 }
 
-Chunk* FreeChunks::take_for_size(size_type_t requested_len) {
+Chunk* FreeChunks::take_for_size(size_t requested_len) {
     auto iter = m_freeChunks.lower_bound(requested_len);
     if (iter == m_freeChunks.end()) {
         return nullptr;
@@ -208,7 +198,7 @@ Chunk* FreeChunks::take_for_size(size_type_t requested_len) {
     return chunk;
 }
 
-void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
+void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
     if (mem == nullptr) {
         // same as "alloc"
         return do_alloc(newsize);
@@ -224,7 +214,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
 
     // align the new size
     newsize = round_to_8(newsize);
-    DEBUG_ASSERT(!chunk->is_free() && "do_re_alloc called for free block !?");
+    assert(!chunk->is_free() && "do_re_alloc called for free block !?");
     if (newsize == chunk->usable_length()) {
         // nothing to be done here
         return mem;
@@ -242,7 +232,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
         // we do this until we have enough memory to satisfy the newsize. If we fail, we take the hard path:
         // allocate new chunk, copy over the data and release the old chunk
         Chunk* addr = nullptr;
-        size_type_t merge_success = 0;
+        size_t merge_success = 0;
         while (true) {
             if (!chunk->try_merge_with_next(this, &addr)) {
                 break;
@@ -260,7 +250,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
                 if (remainder) {
                     m_freeChunks.add(remainder);
                 }
-                return chunk->address_ptr() + sizeof(Chunk);
+                return chunk->address() + sizeof(Chunk);
             }
         }
 
@@ -277,7 +267,6 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
                     m_freeChunks.add(remainder);
                 }
             }
-            DEBUG_ASSERT(false && "failed to allocate");
             return nullptr;
         }
         std::memcpy(newmem, mem, chunk->usable_length());
@@ -286,7 +275,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_type_t newsize) {
     }
 }
 
-size_type_t MemoryManagerInternal::do_usable_size(const void* mem) const {
+size_t MemoryManagerInternal::do_usable_size(const void* mem) const {
     if (mem == nullptr) {
         return 0;
     }
@@ -295,8 +284,8 @@ size_type_t MemoryManagerInternal::do_usable_size(const void* mem) const {
     return chunk->usable_length();
 }
 
-void* MemoryManagerInternal::do_calloc(size_type_t nmemb, size_type_t size) {
-    size_type_t mem_size = nmemb * size;
+void* MemoryManagerInternal::do_calloc(size_t nmemb, size_t size) {
+    size_t mem_size = nmemb * size;
     void* mem = do_alloc(mem_size);
     if (mem == nullptr) {
         return mem;

@@ -2,12 +2,9 @@
 
 #include <cassert>
 #include <cstdlib>
-#include <iostream>
-#include <ostream>
 
 int main(int argc, char** argv) {
-    // max
-    std::cout << "sizeof(Chunk):" << sizeof(Chunk) << std::endl;
+
     char* a = (char*)malloc(100);
     strcpy(a, "hello ");
     char* b = (char*)malloc(10);
