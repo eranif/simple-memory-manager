@@ -53,6 +53,7 @@ Chunk* Chunk::split(MemoryManagerInternal* memgr, size_type_t len) {
     Chunk* new_chunk = reinterpret_cast<Chunk*>(address_ptr() + new_len);
     new_chunk->m_prev_len = new_len;
     new_chunk->m_len = m_len - new_len;
+    DEBUG_ASSERT((new_chunk->m_len & 0x7) == 0);
     new_chunk->set_address((uintptr_t)new_chunk);
     new_chunk->set_free(true);
     m_len = new_len;
@@ -65,6 +66,7 @@ void Chunk::update_length(MemoryManagerInternal* memgr, size_type_t newlen) {
     if (is_free() && free_list.remove_by_addr(this)) {
         // the update to the length must be done **after** the removal
         m_len = newlen;
+        DEBUG_ASSERT((m_len & 0x7) == 0);
         free_list.add(this);
     } else {
         // just update the length
