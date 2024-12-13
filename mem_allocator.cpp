@@ -231,7 +231,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
             if (!chunk->try_merge_with_next(this, &addr)) {
                 break;
             } else {
-                // "addr" was mreged into "chunk" - remote it from the free chunks list
+                // "addr" was mreged into "chunk" - remove it from the free chunks list
                 m_freeChunks.remove_by_addr(addr);
             }
 

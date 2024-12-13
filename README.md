@@ -8,7 +8,7 @@ the "free chunks" are kept in `FreeChunks` class which keeps the free chunks ord
 
 Coalescing: the manager will attempt to merge free memory blocks after each "free" call to reduce memory fragmentation.
 
-For example, after these calls:
+For example, after the below code is executed, the memory manager should have a single 1K block of free data:
 
 ```c++
 // let the manager manage 1K of external memory
@@ -28,7 +28,7 @@ mem_mgr.release(buffer4);
 // mem_mgr should have a single free memory block of size 1024
 ```
 
-## Explicit
+## Usage: explicit
 
 ```c++
 #include "mem_allocator.hpp"
@@ -51,7 +51,7 @@ inline void InitialiseMemoryManager(size_t memsize) {
 #define my_realloc(mem, newsize) mem_mgr.re_alloc(mem, newsize)
 ```
 
-## Implicit
+## Usage: implicit
 
 Implement `malloc`, `free` et al methods in your code
 
@@ -59,7 +59,7 @@ Implement `malloc`, `free` et al methods in your code
 
 #include "mem_allocator.hpp"
 
-// Let the manager manage 20MB
+// Let the manager manage 64MB
 constexpr size_t MEM_SIZE = 64 << 20;
 
 /// If thread-safety is required, use `MemoryManagerThreaded`
@@ -70,7 +70,9 @@ inline void InitialiseMemoryManager() {
     static bool once = true;
     if (once) {
         once = false;
-        void* mem = malloc(MEM_SIZE);
+        // we must use here: `__libc_malloc` to avoid stackoverflow
+        // on Windows, use `VirtualAlloc`
+        void* mem = __libc_malloc(MEM_SIZE);
         assert(mem != nullptr && "**fatal error** could not allocate initial memory block!");
         mem_mgr.assign(mem, MEM_SIZE);
     }
