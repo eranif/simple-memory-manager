@@ -268,3 +268,11 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
         return newmem;
     }
 }
+
+size_t MemoryManagerInternal::do_usable_size(void* mem) const {
+    if (mem == nullptr) {
+        return 0;
+    }
+    Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
+    return chunk->usable_length();
+}

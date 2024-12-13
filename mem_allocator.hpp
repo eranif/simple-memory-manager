@@ -119,6 +119,10 @@ public:
     /// Release memory previously allocated by this memory manager
     void do_release(void* mem);
 
+    /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
+    /// is returned
+    size_t do_usable_size(void* mem) const;
+
 private:
     friend struct Chunk;
     inline size_t capacity() const {
@@ -173,6 +177,12 @@ public:
     void release(void* mem) {
         std::lock_guard lk{ m_lock };
         m_impl.do_release(mem);
+    }
+
+    /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
+    /// is returned. No lock is required here as we are working directly on the memory without changing the manager
+    size_t usable_size(void* mem) const {
+        return m_impl.do_usable_size(mem);
     }
 
 private:
