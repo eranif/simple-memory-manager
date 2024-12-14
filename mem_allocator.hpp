@@ -1,5 +1,7 @@
 #pragma once
 
+#include "absl/container/btree_map.h"
+
 #include <atomic>
 #include <cassert>
 #include <cstddef>
@@ -103,8 +105,14 @@ public:
 /// Used internally
 class MemoryManagerInternal {
 public:
-    MemoryManagerInternal();
-    ~MemoryManagerInternal() = default;
+    MemoryManagerInternal(FreeChunks* freeChunksMgr)
+        : m_freeChunks(freeChunksMgr) {
+    }
+
+    ~MemoryManagerInternal() {
+        delete m_freeChunks;
+        m_freeChunks = nullptr;
+    }
     CLASS_NOT_COPYABLE(MemoryManagerInternal);
 
     /// Assign memory to be managed by this class
@@ -126,12 +134,6 @@ public:
     /// Allocates memory for an array of nmemb elements of size bytes each and returns a pointer to the allocated memory
     void* do_calloc(size_t nmemb, size_t size);
 
-    /// Replace the internal implementation for the free chunks manager
-    void set_free_chunks_manager(FreeChunks* manager) {
-        assert(manager != nullptr);
-        m_freeChunks.reset(manager);
-    }
-
 private:
     friend struct Chunk;
     inline size_t capacity() const {
@@ -142,7 +144,7 @@ private:
         return (uintptr_t)m_head;
     }
 
-    inline std::shared_ptr<FreeChunks> free_chunks() {
+    inline FreeChunks* free_chunks() const {
         return m_freeChunks;
     }
 
@@ -151,7 +153,7 @@ private:
     Chunk* find_free_chunk_for(size_t actual_len);
 
     Chunk* m_head = nullptr;
-    std::shared_ptr<FreeChunks> m_freeChunks;
+    FreeChunks* m_freeChunks = nullptr;
     size_t m_capacity = 0;
 };
 
@@ -183,11 +185,8 @@ private:
 template <class LOCK>
 class GenericMemoryManager {
 public:
-    GenericMemoryManager(FreeChunks* manager = nullptr) {
-        // allow to replace to the free chunk manager during creation only
-        if (manager) {
-            m_impl.set_free_chunks_manager(manager);
-        }
+    GenericMemoryManager(FreeChunks* manager = nullptr)
+        : m_impl(manager) {
     }
     ~GenericMemoryManager() = default;
 
@@ -261,7 +260,7 @@ public:
     Chunk* take_for_size(size_t requested_len) override;
 
 private:
-    std::multimap<size_t, Chunk*> m_freeChunks;
+    absl::btree_multimap<size_t, Chunk*> m_freeChunks;
 };
 
 /// BucketFreeChunks: manage free chunks in buckets, each bucket represents a pre-defined size

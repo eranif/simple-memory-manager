@@ -280,10 +280,6 @@ void* MemoryManagerInternal::do_calloc(size_t nmemb, size_t size) {
     return mem;
 }
 
-MemoryManagerInternal::MemoryManagerInternal() {
-    set_free_chunks_manager(new SimpleFreeChunks());
-}
-
 /// SimpleFreeChunks: manages free chunks inside a multimap indexed by size
 void SimpleFreeChunks::add(Chunk* chunk) {
     chunk->set_free(true);
