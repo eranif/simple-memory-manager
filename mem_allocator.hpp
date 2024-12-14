@@ -2,9 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
+#include <list>
 #include <mutex>
-#include <unordered_set>
 
 class MemoryManagerInternal;
 struct Chunk {
@@ -98,8 +97,7 @@ public:
     Chunk* take_for_size(size_t requested_len);
 
 private:
-    std::multimap<size_t, Chunk*> m_freeChunks;
-    std::unordered_set<Chunk*> m_addresses;
+    std::list<Chunk*> m_freeList;
 };
 
 /// Used internally

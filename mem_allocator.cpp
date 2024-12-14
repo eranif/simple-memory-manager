@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <map>
 
 #define OVERHEAD (sizeof(Chunk))
 
@@ -115,24 +114,47 @@ bool Chunk::try_merge_with_previous(MemoryManagerInternal* memgr) {
 
 /// FreeChunk
 void FreeChunks::add(Chunk* chunk) {
-    // make sure "chunk" is unique here
-    if (m_addresses.insert(chunk).second) {
-        m_freeChunks.insert({ chunk->length(), chunk });
-    }
+    chunk->set_free(true);
+    m_freeList.push_back(chunk);
 }
 
 bool FreeChunks::remove_by_addr(Chunk* addr) {
-    if (m_addresses.count(addr)) {
-        m_addresses.erase(addr);
-        auto range = m_freeChunks.equal_range(addr->length());
-        for (auto iter = range.first; iter != range.second; ++iter) {
-            if (iter->second == addr) {
-                m_freeChunks.erase(iter);
-                return true;
+    auto iter = std::find_if(m_freeList.begin(), m_freeList.end(), [addr](const Chunk* c) { return c == addr; });
+
+    if (iter != m_freeList.end()) {
+        m_freeList.erase(iter);
+        return true;
+    }
+    return false;
+}
+
+Chunk* FreeChunks::take_for_size(size_t real_len) {
+    auto match_iter = m_freeList.end();
+    Chunk* match = nullptr;
+    for (auto iter = m_freeList.begin(); iter != m_freeList.end(); ++iter) {
+        auto c = (*iter);
+        if (c->length() >= real_len) {
+            if (match == nullptr) {
+                // first match
+                match = c;
+                match_iter = iter;
+            } else {
+                // we already got a match - check that it is better than the previous one
+                if (c->length() < match->length()) {
+                    // the new match is better
+                    match = c;
+                    match_iter = iter;
+                }
             }
         }
     }
-    return false;
+
+    if (match && match_iter != m_freeList.end()) {
+        match->set_free(false);
+        m_freeList.erase(match_iter);
+        return match;
+    }
+    return nullptr;
 }
 
 /// MemoryManager
@@ -141,7 +163,7 @@ void MemoryManagerInternal::assign(char* mem, size_t len) {
     uintptr_t addr = (uintptr_t)mem;
     assert((addr & 0x7) == 0);
     // Ensure that we have enough memory to hold our overhead
-    assert(len > OVERHEAD);
+    assert(len >= OVERHEAD);
     m_head = reinterpret_cast<Chunk*>(mem);
     m_capacity = len;
 
@@ -197,18 +219,6 @@ void MemoryManagerInternal::do_release(void* mem) {
 
     // Could not merge "chunk" with its predecessor. Re-add it
     m_freeChunks.add(chunk);
-}
-
-Chunk* FreeChunks::take_for_size(size_t requested_len) {
-    auto iter = m_freeChunks.lower_bound(requested_len);
-    if (iter == m_freeChunks.end()) {
-        return nullptr;
-    }
-    auto chunk = reinterpret_cast<Chunk*>((iter)->second);
-    m_freeChunks.erase(iter);
-    m_addresses.erase(chunk);
-    chunk->set_free(false);
-    return chunk;
 }
 
 void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
