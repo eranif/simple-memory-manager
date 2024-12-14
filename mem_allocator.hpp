@@ -2,8 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <list>
 #include <mutex>
+#include <vector>
 
 class MemoryManagerInternal;
 struct Chunk {
@@ -86,6 +86,11 @@ public:
     ~FreeChunks() = default;
     CLASS_NOT_COPYABLE(FreeChunks);
 
+    enum SearchMethod {
+        kFirstFit,
+        kBestFit,
+    };
+
     /// Add chunk to the list of free chunks
     void add(Chunk* chunk);
 
@@ -96,8 +101,14 @@ public:
     /// `requested_len` should contain all the overhead needed + alignment
     Chunk* take_for_size(size_t requested_len);
 
+    /// Set the search method
+    void set_search_method(SearchMethod method) {
+        m_searchMethod = method;
+    }
+
 private:
-    std::list<Chunk*> m_freeList;
+    std::vector<Chunk*> m_freeList;
+    SearchMethod m_searchMethod = kFirstFit;
 };
 
 /// Used internally

@@ -139,6 +139,10 @@ Chunk* FreeChunks::take_for_size(size_t real_len) {
                 // first match
                 match = c;
                 match_iter = iter;
+                if (m_searchMethod == SearchMethod::kFirstFit) {
+                    // No need to search further
+                    break;
+                }
             } else {
                 // we already got a match - check that it is better than the previous one
                 if (c->length() < match->length()) {
