@@ -4,8 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
-#include <vector>
 
 class MemoryManagerInternal;
 struct Chunk {
