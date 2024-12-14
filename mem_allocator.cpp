@@ -299,15 +299,17 @@ bool SimpleFreeChunks::remove(Chunk* addr) {
 
 Chunk* SimpleFreeChunks::take_for_size(size_t real_len) {
     auto iter = m_freeChunks.lower_bound(real_len);
-    if (iter == m_freeChunks.end()) {
+    if (iter == m_freeChunks.end()) [[unlikely]] {
         return nullptr;
+    } else [[likely]] {
+        auto chunk = iter->second;
+        m_freeChunks.erase(iter);
+        chunk->set_free(false);
+        return chunk;
     }
-
-    auto chunk = iter->second;
-    m_freeChunks.erase(iter);
-    chunk->set_free(false);
-    return chunk;
 }
+
+static size_t BUCKET_COUNT = 0;
 
 /// BucketFreeChunks: manages free chunks by pre-defined size buckets
 BucketFreeChunks::BucketFreeChunks() {
@@ -324,7 +326,13 @@ BucketFreeChunks::BucketFreeChunks() {
         }
         ++memsize;
     }
-    m_buckets = std::vector<std::vector<Chunk*>>(bucket_count);
+    BUCKET_COUNT = bucket_count;
+    m_buckets = new std::vector<Chunk*>[BUCKET_COUNT];
+}
+
+BucketFreeChunks::~BucketFreeChunks() {
+    delete[] m_buckets;
+    m_buckets = nullptr;
 }
 
 void BucketFreeChunks::add(Chunk* chunk) {
@@ -347,41 +355,45 @@ bool BucketFreeChunks::remove(Chunk* chunk) {
     auto& bucket = m_buckets[index];
     auto where = std::find_if(bucket.begin(), bucket.end(), [chunk](const Chunk* c) { return c == chunk; });
 
-    if (where != bucket.end()) {
+    if (where != bucket.end()) [[likely]] {
         bucket.erase(where);
         return true;
+    } else [[unlikely]] {
+        return false;
     }
-    return false;
 }
 
 Chunk* BucketFreeChunks::take_for_size(size_t real_len) {
     auto index = find_bucket_for_size(real_len);
-    if (index == SIZE_MAX) {
+    if (index == SIZE_MAX) [[unlikely]] {
+        return m_largeChunks.take_for_size(real_len);
+
+    } else [[likely]] {
+        // start checking from "start_index"
+        for (size_t i = index; i < BUCKET_COUNT; ++i) {
+            auto& bucket = m_buckets[i];
+            if (!bucket.empty()) {
+                Chunk* chunk = bucket.back();
+                chunk->set_free(false);
+                bucket.pop_back();
+                return chunk;
+            }
+        }
+
+        // try the large chunks manager
         return m_largeChunks.take_for_size(real_len);
     }
-
-    // start checking from "start_index"
-    for (auto iter = m_buckets.begin() + index; iter != m_buckets.end(); ++iter) {
-        if (!iter->empty()) {
-            Chunk* chunk = iter->back();
-            chunk->set_free(false);
-            iter->pop_back();
-            return chunk;
-        }
-    }
-
-    // try the large chunks manager
-    return m_largeChunks.take_for_size(real_len);
 }
 
 size_t BucketFreeChunks::find_bucket_for_size(size_t aligned_size) {
     assert(aligned_size >= 32);
     assert((aligned_size & 0x7) == 0);
     size_t start_index = (aligned_size - 32) / sizeof(size_t);
-    if (start_index >= m_buckets.size()) {
+    if (start_index >= BUCKET_COUNT) [[unlikely]] {
         return SIZE_MAX;
+    } else [[likely]] {
+        return start_index;
     }
-    return start_index;
 }
 
 size_t BucketFreeChunks::find_bucket_for_chunk(Chunk* chunk) {

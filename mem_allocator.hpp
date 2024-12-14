@@ -267,7 +267,7 @@ private:
 class BucketFreeChunks : public FreeChunks {
 public:
     BucketFreeChunks();
-    virtual ~BucketFreeChunks() = default;
+    virtual ~BucketFreeChunks();
 
     /// Add chunk to the list of free chunks. This method also marks
     /// chunk as free
@@ -284,6 +284,6 @@ private:
     size_t find_bucket_for_size(size_t aligned_size);
     size_t find_bucket_for_chunk(Chunk* chunk);
 
-    std::vector<std::vector<Chunk*>> m_buckets;
+    std::vector<Chunk*>* m_buckets = nullptr;
     SimpleFreeChunks m_largeChunks;
 };
