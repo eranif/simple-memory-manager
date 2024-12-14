@@ -239,9 +239,26 @@ TEST(MemManager, ReAllocateWithOOM) {
     void* after_realloc = mem.re_alloc(p, 600);
     EXPECT_EQ(after_realloc, nullptr);
 
-    // TODO: check the memory layout, it should be:
+    auto& impl = mem.GetImpl_TEST();
+    Chunk* chunk = (Chunk*)buffer;
+
     // notice that instead of 3 x 50, we have 1 x 100 (free) + 1 x 50 (alloc)
     // [200 (alloc)| 100 (free) | 50 (alloc)| remainder (free)]
+    EXPECT_EQ(chunk->length(), fix_size(200));
+    EXPECT_FALSE(chunk->is_free());
+
+    chunk = chunk->next(&impl);
+    EXPECT_EQ(chunk->length(), 2 * fix_size(50));
+    EXPECT_TRUE(chunk->is_free());
+
+    chunk = chunk->next(&impl);
+    EXPECT_EQ(chunk->length(), fix_size(50));
+    EXPECT_FALSE(chunk->is_free());
+
+    auto remainder = sizeof(buffer) - (fix_size(200) + 3 * fix_size(50));
+    chunk = chunk->next(&impl);
+    EXPECT_EQ(chunk->length(), remainder);
+    EXPECT_TRUE(chunk->is_free());
 }
 
 // TODO: add tests for running over the list from start -> end and start <- end
