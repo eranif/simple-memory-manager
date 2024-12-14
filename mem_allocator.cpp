@@ -52,7 +52,7 @@ Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t mod_len) {
         return nullptr;
     }
 
-    Chunk* new_chunk = reinterpret_cast<Chunk*>(address() + new_len);
+    Chunk* new_chunk = (Chunk*)(address() + new_len);
     new_chunk->m_prev_len = new_len;
     new_chunk->m_len = m_len - new_len;
     new_chunk->m_address = (uintptr_t)new_chunk;
@@ -120,7 +120,7 @@ void MemoryManagerInternal::assign(char* mem, size_t len) {
     assert((addr & 0x7) == 0);
     // Ensure that we have enough memory to hold our overhead
     assert(len >= OVERHEAD);
-    m_head = reinterpret_cast<Chunk*>(mem);
+    m_head = (Chunk*)(mem);
     m_capacity = len;
 
     m_head->m_len = len;
@@ -156,7 +156,7 @@ void* MemoryManagerInternal::do_alloc(size_t size) {
 }
 
 void MemoryManagerInternal::do_release(void* mem) {
-    Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
+    Chunk* chunk = (Chunk*)((char*)mem - sizeof(Chunk));
     assert(chunk->is_free() == false && "**double free**");
     chunk->set_free(true);
 
@@ -191,7 +191,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
         return nullptr;
     }
 
-    Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
+    Chunk* chunk = (Chunk*)((char*)mem - sizeof(Chunk));
     size_t chunk_orig_len = chunk->length();
 
     // align the new size + add the required overhead size
@@ -265,7 +265,7 @@ size_t MemoryManagerInternal::do_usable_size(const void* mem) const {
         return 0;
     }
 
-    const Chunk* chunk = reinterpret_cast<const Chunk*>((const char*)mem - sizeof(Chunk));
+    const Chunk* chunk = (const Chunk*)((const char*)mem - sizeof(Chunk));
     return chunk->usable_length();
 }
 

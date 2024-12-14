@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 class MemoryManagerInternal;
@@ -165,6 +165,8 @@ public:
 
 template <class LOCK>
 class GenericMemoryManager {
+    typedef std::lock_guard<LOCK> WriteLock; // C++ 11
+    typedef std::shared_lock<LOCK> ReadLock; // C++ 14
 public:
     GenericMemoryManager(FreeChunks* manager = nullptr) {
         // allow to replace to the free chunk manager during creation only
@@ -176,38 +178,39 @@ public:
 
     /// Assign memory to be managed by this class
     void assign(char* mem, size_t len) {
-        std::lock_guard lk{ m_lock };
+        WriteLock lk{ m_lock };
         m_impl.assign(mem, len);
     }
 
     /// Allocate memory for the user
     void* alloc(size_t size) {
-        std::lock_guard lk{ m_lock };
+        WriteLock lk{ m_lock };
         return m_impl.do_alloc(size);
     }
 
     /// Re-allocate memory. See "realloc" for details
     void* re_alloc(void* mem, size_t newsize) {
-        std::lock_guard lk{ m_lock };
+        WriteLock lk{ m_lock };
         return m_impl.do_re_alloc(mem, newsize);
     }
 
     /// Release memory previously allocated by this memory manager
     void release(void* mem) {
-        std::lock_guard lk{ m_lock };
+        WriteLock lk{ m_lock };
         m_impl.do_release(mem);
     }
 
     /// Returns a value no less than the size of the block of allocated memory pointed to by mem.  If mem is NULL, 0
     /// is returned. No lock is required here as we are working directly on the memory without changing the manager
     size_t usable_size(const void* mem) const {
+        ReadLock lk{ m_lock };
         return m_impl.do_usable_size(mem);
     }
 
     /// Allocates memory for an array of `elements_count` elements of `element_size` bytes each and returns
     /// a pointer to the allocated memory
     void* calloc(size_t elements_count, size_t element_size) {
-        std::lock_guard lk{ m_lock };
+        WriteLock lk{ m_lock };
         return m_impl.do_calloc(elements_count, element_size);
     }
 
@@ -225,7 +228,7 @@ private:
 typedef GenericMemoryManager<NoopLock> MemoryManagerSimple;
 
 /// Thread safe version, using mutex
-typedef GenericMemoryManager<std::mutex> MemoryManagerThreaded;
+typedef GenericMemoryManager<std::shared_mutex> MemoryManagerThreaded;
 
 /// Free chunks implementations
 class SimpleFreeChunks : public FreeChunks {
