@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <vector>
 
@@ -83,38 +85,23 @@ struct Chunk {
 class FreeChunks {
 public:
     FreeChunks() = default;
-    ~FreeChunks() = default;
-    CLASS_NOT_COPYABLE(FreeChunks);
-
-    enum SearchMethod {
-        kFirstFit,
-        kBestFit,
-    };
+    virtual ~FreeChunks() = default;
 
     /// Add chunk to the list of free chunks
-    void add(Chunk* chunk);
+    virtual void add(Chunk* chunk) = 0;
 
     /// Delete addr from the free chunks
-    bool remove_by_addr(Chunk* addr);
+    virtual bool remove(Chunk* addr) = 0;
 
     /// Find the best fit for requested_len, if a match is found, remove it.
     /// `requested_len` should contain all the overhead needed + alignment
-    Chunk* take_for_size(size_t requested_len);
-
-    /// Set the search method
-    void set_search_method(SearchMethod method) {
-        m_searchMethod = method;
-    }
-
-private:
-    std::vector<Chunk*> m_freeList;
-    SearchMethod m_searchMethod = kFirstFit;
+    virtual Chunk* take_for_size(size_t requested_len) = 0;
 };
 
 /// Used internally
 class MemoryManagerInternal {
 public:
-    MemoryManagerInternal() = default;
+    MemoryManagerInternal();
     ~MemoryManagerInternal() = default;
     CLASS_NOT_COPYABLE(MemoryManagerInternal);
 
@@ -137,6 +124,12 @@ public:
     /// Allocates memory for an array of nmemb elements of size bytes each and returns a pointer to the allocated memory
     void* do_calloc(size_t nmemb, size_t size);
 
+    /// Replace the internal implementation for the free chunks manager
+    void set_free_chunks_manager(FreeChunks* manager) {
+        assert(manager != nullptr);
+        m_freeChunks.reset(manager);
+    }
+
 private:
     friend struct Chunk;
     inline size_t capacity() const {
@@ -146,7 +139,8 @@ private:
     inline uintptr_t base_address() const {
         return (uintptr_t)m_head;
     }
-    inline FreeChunks& free_chunks() {
+
+    inline std::shared_ptr<FreeChunks> free_chunks() {
         return m_freeChunks;
     }
 
@@ -155,7 +149,7 @@ private:
     Chunk* find_free_chunk_for(size_t actual_len);
 
     Chunk* m_head = nullptr;
-    FreeChunks m_freeChunks;
+    std::shared_ptr<FreeChunks> m_freeChunks;
     size_t m_capacity = 0;
 };
 
@@ -171,6 +165,14 @@ public:
 template <class LOCK>
 class GenericMemoryManager {
 public:
+    GenericMemoryManager(FreeChunks* manager = nullptr) {
+        // allow to replace to the free chunk manager during creation only
+        if (manager) {
+            m_impl.set_free_chunks_manager(manager);
+        }
+    }
+    ~GenericMemoryManager() = default;
+
     /// Assign memory to be managed by this class
     void assign(char* mem, size_t len) {
         std::lock_guard lk{ m_lock };
@@ -223,3 +225,23 @@ typedef GenericMemoryManager<NoopLock> MemoryManagerSimple;
 
 /// Thread safe version, using mutex
 typedef GenericMemoryManager<std::mutex> MemoryManagerThreaded;
+
+/// Free chunks implementations
+class SimpleFreeChunks : public FreeChunks {
+public:
+    SimpleFreeChunks() = default;
+    virtual ~SimpleFreeChunks() = default;
+
+    /// Add chunk to the list of free chunks
+    void add(Chunk* chunk) override;
+
+    /// Delete addr from the free chunks
+    bool remove(Chunk* addr) override;
+
+    /// Find the best fit for requested_len, if a match is found, remove it.
+    /// `requested_len` should contain all the overhead needed + alignment
+    Chunk* take_for_size(size_t requested_len) override;
+
+private:
+    std::multimap<size_t, Chunk*> m_freeChunks;
+};

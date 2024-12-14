@@ -68,11 +68,11 @@ Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t mod_len) {
 
 void Chunk::update_length(MemoryManagerInternal* memgr, size_t newlen) {
     // re-add ourselves
-    auto& free_list = memgr->free_chunks();
-    if (is_free() && free_list.remove_by_addr(this)) {
+    auto free_list = memgr->free_chunks();
+    if (is_free() && free_list->remove(this)) {
         // the update to the length must be done **after** the removal
         m_len = newlen;
-        free_list.add(this);
+        free_list->add(this);
     } else {
         // just update the length
         m_len = newlen;
@@ -113,55 +113,6 @@ bool Chunk::try_merge_with_previous(MemoryManagerInternal* memgr) {
     return true;
 }
 
-/// FreeChunk
-void FreeChunks::add(Chunk* chunk) {
-    chunk->set_free(true);
-    m_freeList.push_back(chunk);
-}
-
-bool FreeChunks::remove_by_addr(Chunk* addr) {
-    auto iter = std::find_if(m_freeList.begin(), m_freeList.end(), [addr](const Chunk* c) { return c == addr; });
-
-    if (iter != m_freeList.end()) {
-        m_freeList.erase(iter);
-        return true;
-    }
-    return false;
-}
-
-Chunk* FreeChunks::take_for_size(size_t real_len) {
-    auto match_iter = m_freeList.end();
-    Chunk* match = nullptr;
-    for (auto iter = m_freeList.begin(); iter != m_freeList.end(); ++iter) {
-        auto c = (*iter);
-        if (c->length() >= real_len) {
-            if (match == nullptr) {
-                // first match
-                match = c;
-                match_iter = iter;
-                if (m_searchMethod == SearchMethod::kFirstFit) {
-                    // No need to search further
-                    break;
-                }
-            } else {
-                // we already got a match - check that it is better than the previous one
-                if (c->length() < match->length()) {
-                    // the new match is better
-                    match = c;
-                    match_iter = iter;
-                }
-            }
-        }
-    }
-
-    if (match && match_iter != m_freeList.end()) {
-        match->set_free(false);
-        m_freeList.erase(match_iter);
-        return match;
-    }
-    return nullptr;
-}
-
 /// MemoryManager
 void MemoryManagerInternal::assign(char* mem, size_t len) {
     // Ensure that the address is 64 bits aligned
@@ -175,19 +126,19 @@ void MemoryManagerInternal::assign(char* mem, size_t len) {
     m_head->m_len = len;
     m_head->m_address = addr;
     m_head->m_prev_len = 0;
-    m_freeChunks.add(m_head);
+    m_freeChunks->add(m_head);
 }
 
 Chunk* MemoryManagerInternal::find_free_chunk_for(size_t actual_len) {
     // Find
-    auto chunk = m_freeChunks.take_for_size(actual_len);
+    auto chunk = m_freeChunks->take_for_size(actual_len);
     if (chunk == nullptr) {
         return nullptr;
     }
 
     auto leftover = chunk->split(this, actual_len);
     if (leftover) {
-        m_freeChunks.add(leftover);
+        m_freeChunks->add(leftover);
     }
     return chunk;
 }
@@ -212,7 +163,7 @@ void MemoryManagerInternal::do_release(void* mem) {
     Chunk* addr = nullptr;
     if (chunk->try_merge_with_next(this, &addr)) {
         // remove addr from the free chunks since it was merged with "chunk"
-        m_freeChunks.remove_by_addr(addr);
+        m_freeChunks->remove(addr);
     }
 
     if (chunk->try_merge_with_previous(this)) {
@@ -223,7 +174,7 @@ void MemoryManagerInternal::do_release(void* mem) {
     }
 
     // Could not merge "chunk" with its predecessor. Re-add it
-    m_freeChunks.add(chunk);
+    m_freeChunks->add(chunk);
 }
 
 void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
@@ -255,7 +206,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
         // shrinking the memory, try to free the remainder if we can
         auto remainder = chunk->split(this, newsize);
         if (remainder) {
-            m_freeChunks.add(remainder);
+            m_freeChunks->add(remainder);
         }
         return mem;
     } else {
@@ -269,7 +220,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
                 break;
             } else {
                 // "addr" was merged into "chunk" - remove it from the free chunks list
-                m_freeChunks.remove_by_addr(addr);
+                m_freeChunks->remove(addr);
             }
 
             ++merge_success;
@@ -279,7 +230,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
                 // see if we got too much
                 auto remainder = chunk->split(this, newsize);
                 if (remainder) {
-                    m_freeChunks.add(remainder);
+                    m_freeChunks->add(remainder);
                 }
                 return chunk->address() + sizeof(Chunk);
             }
@@ -298,7 +249,7 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
                 // original length
                 auto remainder = chunk->split(this, chunk_orig_len);
                 if (remainder) {
-                    m_freeChunks.add(remainder);
+                    m_freeChunks->add(remainder);
                 }
             }
             return nullptr;
@@ -327,4 +278,40 @@ void* MemoryManagerInternal::do_calloc(size_t nmemb, size_t size) {
 
     std::memset(mem, 0, mem_size);
     return mem;
+}
+
+MemoryManagerInternal::MemoryManagerInternal() {
+    set_free_chunks_manager(new SimpleFreeChunks());
+}
+
+///===------------------------------
+/// Free chunks implementations
+///===------------------------------
+
+void SimpleFreeChunks::add(Chunk* chunk) {
+    chunk->set_free(true);
+    m_freeChunks.insert({ chunk->length(), chunk });
+}
+
+bool SimpleFreeChunks::remove(Chunk* addr) {
+    auto range = m_freeChunks.equal_range(addr->length());
+    for (auto iter = range.first; iter != range.second; ++iter) {
+        if (iter->second == addr) {
+            m_freeChunks.erase(iter);
+            return true;
+        }
+    }
+    return false;
+}
+
+Chunk* SimpleFreeChunks::take_for_size(size_t real_len) {
+    auto iter = m_freeChunks.lower_bound(real_len);
+    if (iter == m_freeChunks.end()) {
+        return nullptr;
+    }
+
+    auto chunk = iter->second;
+    m_freeChunks.erase(iter);
+    chunk->set_free(false);
+    return chunk;
 }
