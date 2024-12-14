@@ -269,6 +269,22 @@ TEST_P(MemoryManagerFixture, ReAllocateWithOOM) {
     EXPECT_TRUE(chunk->is_free());
 }
 
+TEST_P(MemoryManagerFixture, AllocateLargeChunk) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
+    char buffer[10 << 10]; // 10K
+    mem.assign(buffer, sizeof(buffer));
+
+//    void* p1 = mem.alloc(6 << 10);
+//    EXPECT_TRUE(p1 != nullptr);
+//    mem.release(p1);
+
+    // try allocating 100 bytes, we have these 100 bytes, but they exist
+    // in the large buckets manager (as 10K chunk)
+    void* p = mem.alloc(100);
+    EXPECT_TRUE(p != nullptr);
+}
+
 INSTANTIATE_TEST_SUITE_P(MemoryManagerTests,
                          MemoryManagerFixture,
                          ::testing::Values(new SimpleFreeChunks, new BucketFreeChunks));

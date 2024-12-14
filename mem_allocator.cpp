@@ -373,7 +373,9 @@ Chunk* BucketFreeChunks::take_for_size(size_t real_len) {
             return chunk;
         }
     }
-    return nullptr;
+
+    // try the large chunks manager
+    return m_largeChunks.take_for_size(real_len);
 }
 
 size_t BucketFreeChunks::find_bucket_for_size(size_t aligned_size) {
