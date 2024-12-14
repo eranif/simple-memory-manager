@@ -13,7 +13,7 @@
 #define OVERHEAD (sizeof(Chunk))
 
 namespace {
-inline size_t round_to_8(size_t value) {
+inline size_t ROUND_TO_8(size_t value) {
     return (value + 7) & ~(0x7);
 }
 } // namespace
@@ -32,12 +32,20 @@ bool Chunk::is_first(MemoryManagerInternal* memgr) const {
     return m_address == memgr->base_address();
 }
 
-/// Split
-Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t len) {
-    // After split, 'this' should have length equal to: OVERHEAD + len
-    // but we also require at least OVERHEAD for the next chunk, so the current length
-    // must be len + 2 * OVERHEAD
-    size_t new_len = round_to_8(OVERHEAD + len);
+/// Split current chunk into 2: `this` contain `mod_len` bytes (this includes overhead) and return the remainder
+///
+/// #Arguments:
+///
+/// - `memgr` the memory manager
+/// - `mod_len` includes the user length + any overhead for bookkeeping
+///
+/// #Return:
+///
+/// This function will fail if the remainder does not have at least `2 x OVERHEAD` bytes
+/// otherwise it returns the chunk holding the remainder bytes and marked as "free"
+Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t mod_len) {
+    // in order to be able to split, we need at least mod_len + 2 x OVERHEAD
+    size_t new_len = mod_len;
     size_t min_for_split = 2 * OVERHEAD;
     bool can_split = (m_len >= (new_len + min_for_split));
     if (!can_split) {
@@ -50,6 +58,11 @@ Chunk* Chunk::split(MemoryManagerInternal* memgr, size_t len) {
     new_chunk->m_address = (uintptr_t)new_chunk;
     new_chunk->set_free(true);
     m_len = new_len;
+
+    auto after = new_chunk->next(memgr);
+    if (after) {
+        after->m_prev_len = new_chunk->m_len;
+    }
     return new_chunk;
 }
 
@@ -138,18 +151,14 @@ void MemoryManagerInternal::assign(char* mem, size_t len) {
     m_freeChunks.add(m_head);
 }
 
-Chunk* MemoryManagerInternal::find_free_chunk_for(size_t user_len) {
-    // align the length to 64 bit address (least 3 digits should be 1 which is 8)
-    user_len = round_to_8(user_len);
-    user_len += OVERHEAD; // the actual length
-
+Chunk* MemoryManagerInternal::find_free_chunk_for(size_t actual_len) {
     // Find
-    auto chunk = m_freeChunks.take_for_size(user_len);
+    auto chunk = m_freeChunks.take_for_size(actual_len);
     if (chunk == nullptr) {
         return nullptr;
     }
 
-    auto leftover = chunk->split(this, user_len);
+    auto leftover = chunk->split(this, actual_len);
     if (leftover) {
         m_freeChunks.add(leftover);
     }
@@ -157,6 +166,10 @@ Chunk* MemoryManagerInternal::find_free_chunk_for(size_t user_len) {
 }
 
 void* MemoryManagerInternal::do_alloc(size_t size) {
+    // align the length to 64 bit address (least 3 digits should be 1 which is 8)
+    size = ROUND_TO_8(size);
+    size += OVERHEAD; // the actual length
+
     Chunk* chunk = find_free_chunk_for(size);
     if (chunk == nullptr) {
         return nullptr;
@@ -199,9 +212,11 @@ Chunk* FreeChunks::take_for_size(size_t requested_len) {
 }
 
 void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
+    // keep the user requested size, we will need it later
+    size_t user_size = newsize;
     if (mem == nullptr) {
         // same as "alloc"
-        return do_alloc(newsize);
+        return do_alloc(user_size);
     }
 
     if (newsize == 0) {
@@ -211,16 +226,17 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
     }
 
     Chunk* chunk = reinterpret_cast<Chunk*>((char*)mem - sizeof(Chunk));
+    size_t chunk_orig_len = chunk->length();
 
-    // align the new size
-    newsize = round_to_8(newsize);
+    // align the new size + add the required overhead size
+    newsize = ROUND_TO_8(newsize) + OVERHEAD;
     assert(!chunk->is_free() && "do_re_alloc called for free block !?");
-    if (newsize == chunk->usable_length()) {
+    if (newsize == chunk->length()) {
         // nothing to be done here
         return mem;
     }
 
-    if (newsize < chunk->usable_length()) {
+    if (newsize < chunk->length()) {
         // shrinking the memory, try to free the remainder if we can
         auto remainder = chunk->split(this, newsize);
         if (remainder) {
@@ -237,14 +253,14 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
             if (!chunk->try_merge_with_next(this, &addr)) {
                 break;
             } else {
-                // "addr" was mreged into "chunk" - remove it from the free chunks list
+                // "addr" was merged into "chunk" - remove it from the free chunks list
                 m_freeChunks.remove_by_addr(addr);
             }
 
             ++merge_success;
 
             // We managed to extend the memory without moving it, see if we got enough space
-            if (chunk->usable_length() >= newsize) {
+            if (chunk->length() >= newsize) {
                 // see if we got too much
                 auto remainder = chunk->split(this, newsize);
                 if (remainder) {
@@ -257,12 +273,15 @@ void* MemoryManagerInternal::do_re_alloc(void* mem, size_t newsize) {
         // If we got here, it means that we could not extend the current chunk to fit the new length
         // allocate new chunk and copy over the memory (though we might have managed to extend it from
         // its original size). We do not need to reclaim the extended memory this is done by "do_release"
-        // bellow
-        void* newmem = do_alloc(newsize);
-        if (newmem == nullptr) {
+        // bellow.
+        //
+        // NOTICE: we pass here "user_size" and not "newsize" since "do_alloc" will adjust the size
+        void* newmem = do_alloc(user_size);
+        if (newmem == nullptr) { // OOM
             if (merge_success > 0) {
-                // we managed to extended the original chunk (but not enough), reclaim that memory
-                auto remainder = chunk->split(this, newsize);
+                // we managed to extended the original chunk (but not enough), by restoring "chunk" back to its
+                // original length
+                auto remainder = chunk->split(this, chunk_orig_len);
                 if (remainder) {
                     m_freeChunks.add(remainder);
                 }

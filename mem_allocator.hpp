@@ -63,7 +63,7 @@ struct Chunk {
         return reinterpret_cast<Chunk*>(prev_addr);
     }
 
-    Chunk* split(MemoryManagerInternal* memgr, size_t len);
+    Chunk* split(MemoryManagerInternal* memgr, size_t mod_len);
 
     /// Try to merge this chunk with the one that comes after it
     /// On success, "addr" contains the address of the merged chunk
@@ -93,7 +93,8 @@ public:
     /// Delete addr from the free chunks
     bool remove_by_addr(Chunk* addr);
 
-    /// Find the best fit for requested_len, if a match is found, remove it
+    /// Find the best fit for requested_len, if a match is found, remove it.
+    /// `requested_len` should contain all the overhead needed + alignment
     Chunk* take_for_size(size_t requested_len);
 
 private:
@@ -141,7 +142,8 @@ private:
     }
 
     /// Find the best free chunk that can hold the requested memory len
-    Chunk* find_free_chunk_for(size_t user_len);
+    /// "actual_len" is the fixed size after adding header size + alignment
+    Chunk* find_free_chunk_for(size_t actual_len);
 
     Chunk* m_head = nullptr;
     FreeChunks m_freeChunks;
@@ -150,6 +152,7 @@ private:
 
 /// A lock that does nothing
 class NoopLock {
+public:
     inline void lock() {
     }
     inline void unlock() {
@@ -194,6 +197,11 @@ public:
     void* calloc(size_t elements_count, size_t element_size) {
         std::lock_guard lk{ m_lock };
         return m_impl.do_calloc(elements_count, element_size);
+    }
+
+    /// For testing purposes, do not use this in production code
+    MemoryManagerInternal& GetImpl_TEST() {
+        return m_impl;
     }
 
 private:
