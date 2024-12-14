@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -163,6 +164,22 @@ public:
     }
 };
 
+/// SpinLock
+class SpinLock {
+public:
+    void lock() {
+        while (locked.test_and_set(std::memory_order_acquire)) {
+            ;
+        }
+    }
+    void unlock() {
+        locked.clear(std::memory_order_release);
+    }
+
+private:
+    std::atomic_flag locked = ATOMIC_FLAG_INIT;
+};
+
 template <class LOCK>
 class GenericMemoryManager {
 public:
@@ -225,7 +242,7 @@ private:
 typedef GenericMemoryManager<NoopLock> MemoryManagerSimple;
 
 /// Thread safe version, using mutex
-typedef GenericMemoryManager<std::mutex> MemoryManagerThreaded;
+typedef GenericMemoryManager<SpinLock> MemoryManagerThreaded;
 
 /// Free chunks implementations
 class SimpleFreeChunks : public FreeChunks {
