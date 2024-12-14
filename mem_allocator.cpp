@@ -4,6 +4,7 @@
 /// |struct Chunk |     memory                    |
 /// +---------------------------------------------+
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
