@@ -28,8 +28,11 @@ size_t random_number_in_range(size_t start, size_t end) {
 }
 } // namespace
 
-TEST(MemManager, SimpleAllocate) {
-    MemoryManagerSimple mem;
+class MemoryManagerFixture : public ::testing::TestWithParam<FreeChunks*> {};
+
+TEST_P(MemoryManagerFixture, SimpleAllocate) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
 
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
@@ -50,8 +53,9 @@ TEST(MemManager, SimpleAllocate) {
     EXPECT_EQ(chunk->length(), 1024);
 }
 
-TEST(MemManager, ManyAllocate) {
-    MemoryManagerSimple mem;
+TEST_P(MemoryManagerFixture, ManyAllocate) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
 
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
@@ -103,8 +107,9 @@ TEST(MemManager, ManyAllocate) {
 
 /// Test case: allocate buffer, immediately realloc it we expect the manager to be able to extend the buffer
 /// without copying the data
-TEST(MemManager, ReAllocateNoCopy) {
-    MemoryManagerSimple mem;
+TEST_P(MemoryManagerFixture, ReAllocateNoCopy) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -123,8 +128,9 @@ TEST(MemManager, ReAllocateNoCopy) {
     EXPECT_EQ(memcmp(after_realloc, b, 200), 0);
 }
 
-TEST(MemManager, ReAllocateWithCopy) {
-    MemoryManagerSimple mem;
+TEST_P(MemoryManagerFixture, ReAllocateWithCopy) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -162,8 +168,9 @@ TEST(MemManager, ReAllocateWithCopy) {
     EXPECT_EQ(chunk->length(), fix_size(300));
 }
 
-TEST(MemManager, ReAllocateWithAttemptToExpand) {
-    MemoryManagerSimple mem;
+TEST_P(MemoryManagerFixture, ReAllocateWithAttemptToExpand) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -215,8 +222,9 @@ TEST(MemManager, ReAllocateWithAttemptToExpand) {
     EXPECT_EQ(chunk->length(), 1024 - (fix_size(200) + fix_size(60) + fix_size(50) + fix_size(300)));
 }
 
-TEST(MemManager, ReAllocateWithOOM) {
-    MemoryManagerSimple mem;
+TEST_P(MemoryManagerFixture, ReAllocateWithOOM) {
+    auto free_list_mgr = GetParam();
+    MemoryManagerSimple mem(free_list_mgr);
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -261,5 +269,6 @@ TEST(MemManager, ReAllocateWithOOM) {
     EXPECT_TRUE(chunk->is_free());
 }
 
-// TODO: add tests for running over the list from start -> end and start <- end
-// after split operation
+INSTANTIATE_TEST_SUITE_P(MemoryManagerTests,
+                         MemoryManagerFixture,
+                         ::testing::Values(new SimpleFreeChunks, new BucketFreeChunks));

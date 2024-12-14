@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 class MemoryManagerInternal;
 struct Chunk {
@@ -244,4 +245,29 @@ public:
 
 private:
     std::multimap<size_t, Chunk*> m_freeChunks;
+};
+
+/// BucketFreeChunks: manage free chunks in buckets, each bucket represents a pre-defined size
+class BucketFreeChunks : public FreeChunks {
+public:
+    BucketFreeChunks();
+    virtual ~BucketFreeChunks() = default;
+
+    /// Add chunk to the list of free chunks. This method also marks
+    /// chunk as free
+    void add(Chunk* chunk) override;
+
+    /// Delete chunk from the free chunks
+    bool remove(Chunk* chunk) override;
+
+    /// Find the best fit for requested_len, if a match is found, remove it.
+    /// `requested_len` should contain all the overhead needed + alignment
+    Chunk* take_for_size(size_t requested_len) override;
+
+private:
+    size_t find_bucket_for_size(size_t aligned_size);
+    size_t find_bucket_for_chunk(Chunk* chunk);
+
+    std::vector<std::vector<Chunk*>> m_buckets;
+    SimpleFreeChunks m_largeChunks;
 };
