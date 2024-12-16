@@ -28,11 +28,11 @@ size_t random_number_in_range(size_t start, size_t end) {
 }
 } // namespace
 
-class MemoryManagerFixture : public ::testing::TestWithParam<FreeChunks*> {};
+class MemoryManagerFixture : public ::testing::TestWithParam<BucketFreeChunks*> {};
 
 TEST_P(MemoryManagerFixture, SimpleAllocate) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
 
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
@@ -55,7 +55,7 @@ TEST_P(MemoryManagerFixture, SimpleAllocate) {
 
 TEST_P(MemoryManagerFixture, ManyAllocate) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
 
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
@@ -109,7 +109,7 @@ TEST_P(MemoryManagerFixture, ManyAllocate) {
 /// without copying the data
 TEST_P(MemoryManagerFixture, ReAllocateNoCopy) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -130,7 +130,7 @@ TEST_P(MemoryManagerFixture, ReAllocateNoCopy) {
 
 TEST_P(MemoryManagerFixture, ReAllocateWithCopy) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -170,7 +170,7 @@ TEST_P(MemoryManagerFixture, ReAllocateWithCopy) {
 
 TEST_P(MemoryManagerFixture, ReAllocateWithAttemptToExpand) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -224,7 +224,7 @@ TEST_P(MemoryManagerFixture, ReAllocateWithAttemptToExpand) {
 
 TEST_P(MemoryManagerFixture, ReAllocateWithOOM) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
     char buffer[1024];
     mem.assign(buffer, sizeof(buffer));
 
@@ -271,13 +271,13 @@ TEST_P(MemoryManagerFixture, ReAllocateWithOOM) {
 
 TEST_P(MemoryManagerFixture, AllocateLargeChunk) {
     auto free_list_mgr = GetParam();
-    MemoryManagerSimple mem(free_list_mgr);
+    MemoryManagerSimple mem;
     char buffer[10 << 10]; // 10K
     mem.assign(buffer, sizeof(buffer));
 
-//    void* p1 = mem.alloc(6 << 10);
-//    EXPECT_TRUE(p1 != nullptr);
-//    mem.release(p1);
+    //    void* p1 = mem.alloc(6 << 10);
+    //    EXPECT_TRUE(p1 != nullptr);
+    //    mem.release(p1);
 
     // try allocating 100 bytes, we have these 100 bytes, but they exist
     // in the large buckets manager (as 10K chunk)
@@ -285,6 +285,4 @@ TEST_P(MemoryManagerFixture, AllocateLargeChunk) {
     EXPECT_TRUE(p != nullptr);
 }
 
-INSTANTIATE_TEST_SUITE_P(MemoryManagerTests,
-                         MemoryManagerFixture,
-                         ::testing::Values(new SimpleFreeChunks, new BucketFreeChunks));
+INSTANTIATE_TEST_SUITE_P(MemoryManagerTests, MemoryManagerFixture, ::testing::Values(new BucketFreeChunks));

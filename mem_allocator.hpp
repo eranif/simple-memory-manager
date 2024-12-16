@@ -86,33 +86,12 @@ struct Chunk {
     ClassName(const ClassName&) = delete;           \
     ClassName& operator=(const ClassName&) = delete
 
-class FreeChunks {
-public:
-    FreeChunks() = default;
-    virtual ~FreeChunks() = default;
-
-    /// Add chunk to the list of free chunks
-    virtual void add(Chunk* chunk) = 0;
-
-    /// Delete addr from the free chunks
-    virtual bool remove(Chunk* addr) = 0;
-
-    /// Find the best fit for requested_len, if a match is found, remove it.
-    /// `requested_len` should contain all the overhead needed + alignment
-    virtual Chunk* take_for_size(size_t requested_len) = 0;
-};
-
 /// Used internally
+class BucketFreeChunks;
 class MemoryManagerInternal {
 public:
-    MemoryManagerInternal(FreeChunks* freeChunksMgr)
-        : m_freeChunks(freeChunksMgr) {
-    }
-
-    ~MemoryManagerInternal() {
-        delete m_freeChunks;
-        m_freeChunks = nullptr;
-    }
+    MemoryManagerInternal();
+    ~MemoryManagerInternal();
     CLASS_NOT_COPYABLE(MemoryManagerInternal);
 
     /// Assign memory to be managed by this class
@@ -144,7 +123,7 @@ private:
         return (uintptr_t)m_head;
     }
 
-    inline FreeChunks* free_chunks() const {
+    inline BucketFreeChunks* free_chunks() const {
         return m_freeChunks;
     }
 
@@ -153,7 +132,7 @@ private:
     Chunk* find_free_chunk_for(size_t actual_len);
 
     Chunk* m_head = nullptr;
-    FreeChunks* m_freeChunks = nullptr;
+    BucketFreeChunks* m_freeChunks = nullptr;
     size_t m_capacity = 0;
 };
 
@@ -185,9 +164,7 @@ private:
 template <class LOCK>
 class GenericMemoryManager {
 public:
-    GenericMemoryManager(FreeChunks* manager = nullptr)
-        : m_impl(manager) {
-    }
+    GenericMemoryManager() = default;
     ~GenericMemoryManager() = default;
 
     /// Assign memory to be managed by this class
@@ -244,41 +221,41 @@ typedef GenericMemoryManager<NoopLock> MemoryManagerSimple;
 typedef GenericMemoryManager<SpinLock> MemoryManagerThreaded;
 
 /// Free chunks implementations
-class SimpleFreeChunks : public FreeChunks {
+class SimpleFreeChunks {
 public:
     SimpleFreeChunks() = default;
-    virtual ~SimpleFreeChunks() = default;
+    ~SimpleFreeChunks() = default;
 
     /// Add chunk to the list of free chunks
-    void add(Chunk* chunk) override;
+    void add(Chunk* chunk);
 
     /// Delete addr from the free chunks
-    bool remove(Chunk* addr) override;
+    bool remove(Chunk* addr);
 
     /// Find the best fit for requested_len, if a match is found, remove it.
     /// `requested_len` should contain all the overhead needed + alignment
-    Chunk* take_for_size(size_t requested_len) override;
+    Chunk* take_for_size(size_t requested_len);
 
 private:
     absl::btree_multimap<size_t, Chunk*> m_freeChunks;
 };
 
 /// BucketFreeChunks: manage free chunks in buckets, each bucket represents a pre-defined size
-class BucketFreeChunks : public FreeChunks {
+class BucketFreeChunks {
 public:
     BucketFreeChunks();
-    virtual ~BucketFreeChunks();
+    ~BucketFreeChunks();
 
     /// Add chunk to the list of free chunks. This method also marks
     /// chunk as free
-    void add(Chunk* chunk) override;
+    void add(Chunk* chunk);
 
     /// Delete chunk from the free chunks
-    bool remove(Chunk* chunk) override;
+    bool remove(Chunk* chunk);
 
     /// Find the best fit for requested_len, if a match is found, remove it.
     /// `requested_len` should contain all the overhead needed + alignment
-    Chunk* take_for_size(size_t requested_len) override;
+    Chunk* take_for_size(size_t requested_len);
 
 private:
     size_t find_bucket_for_size(size_t aligned_size);

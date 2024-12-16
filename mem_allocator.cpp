@@ -114,6 +114,15 @@ bool Chunk::try_merge_with_previous(MemoryManagerInternal* memgr) {
 }
 
 /// MemoryManager
+MemoryManagerInternal::MemoryManagerInternal() {
+    m_freeChunks = new BucketFreeChunks();
+}
+
+MemoryManagerInternal::~MemoryManagerInternal() {
+    delete m_freeChunks;
+    m_freeChunks = nullptr;
+}
+
 void MemoryManagerInternal::assign(char* mem, size_t len) {
     // Ensure that the address is 64 bits aligned
     uintptr_t addr = (uintptr_t)mem;
